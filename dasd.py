@@ -35,16 +35,17 @@ class IotControl:
         return "거실 불을 껐습니다."
 
     def process_command(self, command):
-        if "거실 불 켜줘" in command:
+        if "거실 불 켜" in command or "거실 불 켜줘" in command:
             return self.turn_on_living_room_light()
-        elif "거실 불 꺼줘" in command:
+        elif "거실 불 꺼" in command or "거실 불 꺼줘" in command:
             return self.turn_off_living_room_light()
         else:
             return "알 수 없는 명령입니다."
 
 async def call_chatgpt4_api(conversation):
     try:
-        response = client.chat.completions.create(
+        response = await asyncio.to_thread(
+            client.chat.completions.create,
             model="gpt-4",
             messages=conversation,
             temperature=1,
@@ -59,11 +60,12 @@ async def call_chatgpt4_api(conversation):
         return "명령을 처리하는 데 문제가 발생했습니다."
 
 async def stream_to_speakers(text):
-    player_stream = pyaudio.PyAudio().open(format=pyaudio.paInt16, channels=1, rate=24000, output=True)
+    pyaudio_instance = pyaudio.PyAudio()
+    player_stream = pyaudio_instance.open(format=pyaudio.paInt16, channels=1, rate=24000, output=True)
 
     start_time = time.time()
 
-    with client.audio.speech.with_streaming_response.create(
+    async with client.audio.speech.with_streaming_response.create(
         model="tts-1",
         voice="alloy",
         response_format="pcm",  # similar to WAV, but without a header chunk at the start.
@@ -76,15 +78,49 @@ async def stream_to_speakers(text):
     print(f"Done in {int((time.time() - start_time) * 1000)}ms.")
     player_stream.stop_stream()
     player_stream.close()
+    pyaudio_instance.terminate()
 
 def play_beep():
     beep_path = Path(__file__).parent / "beep.wav"
     with wave.open(str(beep_path), 'rb') as wave_file:
         wave_obj = wave_file.readframes(wave_file.getnframes())
-    player_stream = pyaudio.PyAudio().open(format=pyaudio.paInt16, channels=1, rate=wave_file.getframerate(), output=True)
+    pyaudio_instance = pyaudio.PyAudio()
+    player_stream = pyaudio_instance.open(format=pyaudio.paInt16, channels=1, rate=wave_file.getframerate(), output=True)
     player_stream.write(wave_obj)
     player_stream.stop_stream()
     player_stream.close()
+    pyaudio_instance.terminate()
+
+async def handle_voice_command():
+    recognizer = sr.Recognizer()
+    mic = sr.Microphone()
+    global conversation, iot
+
+    with mic as source:
+        recognizer.adjust_for_ambient_noise(source)
+        print("Listening...")
+        audio = recognizer.listen(source)
+    
+    try:
+        transcription = recognizer.recognize_google(audio, language="ko-KR")
+        print(f"Transcription: {transcription}")
+        if "시리야" in transcription:
+            play_beep()
+            command = transcription.replace("시리야", "").strip()
+            conversation.append({"role": "user", "content": command})
+            gpt_response = await call_chatgpt4_api(conversation)
+            print(f"GPT-4 Response: {gpt_response}")
+            conversation.append({"role": "assistant", "content": gpt_response})
+
+            # GPT-4의 응답을 기반으로 IoT 명령을 처리
+            iot_response = iot.process_command(gpt_response)
+            await stream_to_speakers(gpt_response)
+            if iot_response != "알 수 없는 명령입니다.":
+                await stream_to_speakers(iot_response)
+    except sr.UnknownValueError:
+        print("음성을 인식하지 못했습니다.")
+    except sr.RequestError as e:
+        print(f"Google Speech Recognition service 오류: {e}")
 
 async def main():
     global conversation, iot
@@ -101,38 +137,9 @@ For other requests, provide helpful and informative responses. Provide detailed 
 Avoid mentioning that you are an AI, respond as if you are a human.
 """ }]
 
-    recognizer = sr.Recognizer()
-    mic = sr.Microphone()
-
     print("Listening for '시리야'...")
-
     while True:
-        with mic as source:
-            recognizer.adjust_for_ambient_noise(source)
-            print("Listening...")
-            audio = recognizer.listen(source)
-        
-        try:
-            transcription = recognizer.recognize_google(audio, language="ko-KR")
-            print(f"Transcription: {transcription}")
-            if "시리야" in transcription:
-                play_beep()
-                command = transcription.replace("시리야", "").strip()
-                conversation.append({"role": "user", "content": command})
-                gpt_response = await call_chatgpt4_api(conversation)
-                print(f"GPT-4 Response: {gpt_response}")
-                conversation.append({"role": "assistant", "content": gpt_response})
-
-                iot_response = iot.process_command(command)
-                # IoT 명령이 처리되지 않은 경우 gpt_response를 사용
-                if iot_response == "알 수 없는 명령입니다.":
-                    await stream_to_speakers(gpt_response)
-                else:
-                    await stream_to_speakers(iot_response)
-        except sr.UnknownValueError:
-            print("음성을 인식하지 못했습니다.")
-        except sr.RequestError as e:
-            print(f"Google Speech Recognition service 오류: {e}")
+        await handle_voice_command()
 
 if __name__ == "__main__":
     asyncio.run(main())
