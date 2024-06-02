@@ -60,7 +60,8 @@ async def call_chatgpt4_api(conversation):
         return "명령을 처리하는 데 문제가 발생했습니다."
 
 async def stream_to_speakers(text):
-    player_stream = pyaudio.PyAudio().open(format=pyaudio.paInt16, channels=1, rate=24000, output=True)
+    pyaudio_instance = pyaudio.PyAudio()
+    player_stream = pyaudio_instance.open(format=pyaudio.paInt16, channels=1, rate=24000, output=True)
 
     start_time = time.time()
 
@@ -77,15 +78,18 @@ async def stream_to_speakers(text):
     print(f"Done in {int((time.time() - start_time) * 1000)}ms.")
     player_stream.stop_stream()
     player_stream.close()
+    pyaudio_instance.terminate()
 
 def play_beep():
     beep_path = Path(__file__).parent / "beep.wav"
     with wave.open(str(beep_path), 'rb') as wave_file:
         wave_obj = wave_file.readframes(wave_file.getnframes())
-    player_stream = pyaudio.PyAudio().open(format=pyaudio.paInt16, channels=1, rate=wave_file.getframerate(), output=True)
+    pyaudio_instance = pyaudio.PyAudio()
+    player_stream = pyaudio_instance.open(format=pyaudio.paInt16, channels=1, rate=wave_file.getframerate(), output=True)
     player_stream.write(wave_obj)
     player_stream.stop_stream()
     player_stream.close()
+    pyaudio_instance.terminate()
 
 async def handle_voice_command():
     recognizer = sr.Recognizer()
