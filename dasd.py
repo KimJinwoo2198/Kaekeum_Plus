@@ -2,17 +2,10 @@ import openai
 import os
 import asyncio
 import speech_recognition as sr
-import simpleaudio as sa
-from pathlib import Path
-import wave
-import sys
 import pyaudio
+import time
+from pathlib import Path
 from openai import OpenAI
-
-# ALSA 에러 억제
-stderr_fileno = sys.stderr.fileno()
-devnull = os.open(os.devnull, os.O_RDWR)
-os.dup2(devnull, stderr_fileno)
 
 # OpenAI API 키 설정 (환경 변수에서 가져옴)
 openai_api_key = "YOUR_OPENAI_API_KEY"
@@ -84,30 +77,33 @@ async def call_chatgpt4_api(conversation):
         print(f"Error calling ChatGPT API: {e}")
         return "명령을 처리하는 데 문제가 발생했습니다."
 
-def generate_speech(text):
-    try:
-        speech_file_path = Path(__file__).parent / "speech.mp3"
+def stream_to_speakers(text):
+    import pyaudio
 
-        # Create text-to-speech audio file
-        with client.audio.speech.with_streaming_response.create(
-            model="tts-1",
-            voice="alloy",
-            input=text,
-        ) as response:
-            response.stream_to_file(speech_file_path)
+    player_stream = pyaudio.PyAudio().open(format=pyaudio.paInt16, channels=1, rate=24000, output=True)
 
-        wave_obj = sa.WaveObject.from_wave_file(speech_file_path)
-        play_obj = wave_obj.play()
-        play_obj.wait_done()
-    except Exception as e:
-        print(f"Error generating speech: {e}")
+    start_time = time.time()
+
+    with client.audio.speech.with_streaming_response.create(
+        model="tts-1",
+        voice="alloy",
+        response_format="pcm",  # similar to WAV, but without a header chunk at the start.
+        input=text,
+    ) as response:
+        print(f"Time to first byte: {int((time.time() - start_time) * 1000)}ms")
+        for chunk in response.iter_bytes(chunk_size=1024):
+            player_stream.write(chunk)
+
+    print(f"Done in {int((time.time() - start_time) * 1000)}ms.")
 
 def play_beep():
     beep_path = Path(__file__).parent / "beep.wav"
     with wave.open(str(beep_path), 'rb') as wave_file:
-        wave_obj = sa.WaveObject(wave_file.readframes(wave_file.getnframes()), num_channels=wave_file.getnchannels(), bytes_per_sample=wave_file.getsampwidth(), sample_rate=wave_file.getframerate())
-    play_obj = wave_obj.play()
-    play_obj.wait_done()
+        wave_obj = wave_file.readframes(wave_file.getnframes())
+    player_stream = pyaudio.PyAudio().open(format=pyaudio.paInt16, channels=1, rate=wave_file.getframerate(), output=True)
+    player_stream.write(wave_obj)
+    player_stream.stop_stream()
+    player_stream.close()
 
 async def main():
     global conversation, iot
@@ -149,9 +145,9 @@ Avoid mentioning that you are an AI, respond as if you are a human.
 
                 iot_response = iot.process_command(gpt_response)
                 if iot_response:
-                    generate_speech(iot_response)
+                    stream_to_speakers(iot_response)
                 else:
-                    generate_speech(gpt_response)
+                    stream_to_speakers(gpt_response)
         except sr.UnknownValueError:
             print("음성을 인식하지 못했습니다.")
         except sr.RequestError as e:
