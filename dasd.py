@@ -2,35 +2,27 @@ import openai
 import os
 import asyncio
 import speech_recognition as sr
-from gpiozero import LED
 import simpleaudio as sa
-import sys
-import subprocess
-
-# ALSA 및 기타 stderr 메시지 억제
-stderr_fileno = sys.stderr.fileno()
-devnull = os.open(os.devnull, os.O_RDWR)
-os.dup2(devnull, stderr_fileno)
+from pathlib import Path
+from openai import OpenAI
 
 # OpenAI API 키 설정
-openai.api_key = "YOUR_OPENAI_API_KEY"
-
-# Google Cloud 인증 키 설정
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "path_to_your_google_cloud_credentials.json"
+client = OpenAI(api_key="YOUR_OPENAI_API_KEY")
 
 # Initialize LED
-led_living_room = LED(17)
+# led_living_room = LED(17)  # 주석 처리
 
 class IotControl:
     def __init__(self):
-        self.led_living_room = LED(17)  # 거실 불
+        # self.led_living_room = LED(17)  # 주석 처리
+        self.led_living_room = lambda: print('test')  # 대체 코드
 
     def turn_on_living_room_light(self):
-        self.led_living_room.on()
+        self.led_living_room()
         return "거실 불을 켰습니다."
 
     def turn_off_living_room_light(self):
-        self.led_living_room.off()
+        self.led_living_room()
         return "거실 불을 껐습니다."
 
     def process_command(self, command):
@@ -50,12 +42,17 @@ async def correct_transcript(transcript):
         "and use only the context provided."
     )
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": transcript}
-            ]
+            ],
+            temperature=1,
+            max_tokens=256,
+            top_p=1,
+            frequency_penalty=0,
+            presence_penalty=0
         )
         return response.choices[0].message['content'].strip()
     except Exception as e:
@@ -64,33 +61,52 @@ async def correct_transcript(transcript):
 
 async def call_chatgpt4_api(conversation):
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4o",
-            messages=conversation
+            messages=conversation,
+            temperature=1,
+            max_tokens=256,
+            top_p=1,
+            frequency_penalty=0,
+            presence_penalty=0
         )
         return response.choices[0].message['content'].strip()
     except Exception as e:
         print(f"Error calling ChatGPT API: {e}")
         return "명령을 처리하는 데 문제가 발생했습니다."
 
-async def generate_speech(text):
+def generate_speech(text):
     try:
-        response = await openai.Audio.create(
-            engine="davinci-tts",
-            prompt=text,
-            format="wav",
-            language="ko"
+        client = texttospeech.TextToSpeechClient()
+
+        synthesis_input = texttospeech.SynthesisInput(text=text)
+
+        voice = texttospeech.VoiceSelectionParams(
+            language_code="ko-KR",
+            ssml_gender=texttospeech.SsmlVoiceGender.NEUTRAL
         )
-        with open("response.wav", "wb") as f:
-            f.write(response['data'])
-        wave_obj = sa.WaveObject.from_wave_file("response.wav")
+
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.LINEAR16
+        )
+
+        response = client.synthesize_speech(
+            input=synthesis_input, voice=voice, audio_config=audio_config
+        )
+
+        speech_file_path = Path(__file__).parent / "response.wav"
+        with open(speech_file_path, "wb") as out:
+            out.write(response.audio_content)
+        
+        wave_obj = sa.WaveObject.from_wave_file(speech_file_path)
         play_obj = wave_obj.play()
         play_obj.wait_done()
     except Exception as e:
         print(f"Error generating speech: {e}")
 
 def play_beep():
-    wave_obj = sa.WaveObject.from_wave_file("beep.wav")
+    beep_path = Path(__file__).parent / "beep.wav"
+    wave_obj = sa.WaveObject.from_wave_file(beep_path)
     play_obj = wave_obj.play()
     play_obj.wait_done()
 
@@ -134,9 +150,9 @@ Avoid mentioning that you are an AI, respond as if you are a human.
 
                 iot_response = iot.process_command(gpt_response)
                 if iot_response:
-                    await generate_speech(iot_response)
+                    generate_speech(iot_response)
                 else:
-                    await generate_speech(gpt_response)
+                    generate_speech(gpt_response)
         except sr.UnknownValueError:
             print("음성을 인식하지 못했습니다.")
         except sr.RequestError as e:
