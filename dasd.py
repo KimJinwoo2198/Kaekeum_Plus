@@ -42,36 +42,10 @@ class IotControl:
         else:
             return "알 수 없는 명령입니다."
 
-async def correct_transcript(transcript):
-    system_prompt = (
-        "You are a helpful assistant. Your task is to correct any spelling discrepancies "
-        "in the transcribed text. Ensure the correct spelling of the following terms: ZyntriQix, "
-        "Digique Plus, CynapseFive, VortiQore V8, EchoNix Array, OrbitalLink Seven, DigiFractal Matrix, PULSE, RAPT, "
-        "B.R.I.C.K., Q.U.A.R.T.Z., F.L.I.N.T. Only add necessary punctuation such as periods, commas, and capitalization, "
-        "and use only the context provided."
-    )
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": transcript}
-            ],
-            temperature=1,
-            max_tokens=256,
-            top_p=1,
-            frequency_penalty=0,
-            presence_penalty=0
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"Error correcting transcript: {e}")
-        return transcript
-
 async def call_chatgpt4_api(conversation):
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=conversation,
             temperature=1,
             max_tokens=256,
@@ -142,13 +116,12 @@ Avoid mentioning that you are an AI, respond as if you are a human.
             if "시리야" in transcription:
                 play_beep()
                 command = transcription.replace("시리야", "").strip()
-                corrected_command = await correct_transcript(command)
-                conversation.append({"role": "user", "content": corrected_command})
+                conversation.append({"role": "user", "content": command})
                 gpt_response = await call_chatgpt4_api(conversation)
                 print(f"GPT-4 Response: {gpt_response}")
                 conversation.append({"role": "assistant", "content": gpt_response})
 
-                iot_response = iot.process_command(gpt_response)
+                iot_response = iot.process_command(command)
                 # IoT 명령이 처리되지 않은 경우 gpt_response를 사용
                 if iot_response == "알 수 없는 명령입니다.":
                     stream_to_speakers(gpt_response)
