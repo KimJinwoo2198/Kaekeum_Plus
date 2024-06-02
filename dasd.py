@@ -6,6 +6,7 @@ import simpleaudio as sa
 from pathlib import Path
 import wave
 import sys
+import pyaudio
 from openai import OpenAI
 
 # ALSA 에러 억제
@@ -13,7 +14,7 @@ stderr_fileno = sys.stderr.fileno()
 devnull = os.open(os.devnull, os.O_RDWR)
 os.dup2(devnull, stderr_fileno)
 
-# OpenAI API 키 설정
+# OpenAI API 키 설정 (환경 변수에서 가져옴)
 openai_api_key = "YOUR_OPENAI_API_KEY"
 client = OpenAI(api_key=openai_api_key)
 
@@ -85,16 +86,16 @@ async def call_chatgpt4_api(conversation):
 
 def generate_speech(text):
     try:
-        response = client.audio.speech.create(
+        speech_file_path = Path(__file__).parent / "speech.mp3"
+
+        # Create text-to-speech audio file
+        with client.audio.speech.with_streaming_response.create(
             model="tts-1",
             voice="alloy",
-            input=text
-        )
-        
-        speech_file_path = Path(__file__).parent / "response.mp3"
-        with open(speech_file_path, "wb") as out:
-            out.write(response.audio_content)
-        
+            input=text,
+        ) as response:
+            response.stream_to_file(speech_file_path)
+
         wave_obj = sa.WaveObject.from_wave_file(speech_file_path)
         play_obj = wave_obj.play()
         play_obj.wait_done()
