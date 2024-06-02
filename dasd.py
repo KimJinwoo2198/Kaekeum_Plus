@@ -35,9 +35,9 @@ class IotControl:
         return "거실 불을 껐습니다."
 
     def process_command(self, command):
-        if "거실 불 켜" in command or "거실 불 켜줘" in command:
+        if "켜는" in command or "거실 불 켜줘" in command:
             return self.turn_on_living_room_light()
-        elif "거실 불 꺼" in command or "거실 불 꺼줘" in command:
+        elif "끄는" in command or "거실 불 꺼줘" in command:
             return self.turn_off_living_room_light()
         else:
             return "알 수 없는 명령입니다."
