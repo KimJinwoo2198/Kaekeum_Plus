@@ -51,18 +51,18 @@ class AudioStream:
                                   input=True)
         self.frames = []
 
-    def start_stream(self):
+    async def start_stream(self):
         while True:
             data = self.stream.read(self.chunk)
             self.frames.append(data)
             if len(self.frames) >= 10:  # 10 chunks to form a 1-second buffer
                 audio_content = b''.join(self.frames)
                 self.frames = []
-                transcription = asyncio.run(self.transcribe_audio(audio_content))
+                transcription = await self.transcribe_audio(audio_content)  # await 추가
                 if transcription and "헤이 어시스턴트" in transcription.lower():
                     self.play_beep()
                     print("Keyword detected, start conversation")
-                    asyncio.run(self.handle_command(transcription.replace("헤이 어시스턴트", "").strip()))
+                    await self.handle_command(transcription.replace("헤이 어시스턴트", "").strip())  # await 추가
 
     def play_beep(self):
         wave_obj = sa.WaveObject.from_wave_file("beep.wav")
@@ -161,7 +161,7 @@ Avoid mentioning that you are an AI, respond as if you are a human.
 """ }]
 
     audio_stream = AudioStream()
-    audio_stream.start_stream()
+    await audio_stream.start_stream()
 
 if __name__ == "__main__":
     asyncio.run(main())
