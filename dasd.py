@@ -4,9 +4,9 @@ import asyncio
 import speech_recognition as sr
 import simpleaudio as sa
 from pathlib import Path
-from openai import OpenAI
 import wave
 import sys
+from openai import OpenAI
 
 # ALSA 에러 억제
 stderr_fileno = sys.stderr.fileno()
@@ -14,7 +14,8 @@ devnull = os.open(os.devnull, os.O_RDWR)
 os.dup2(devnull, stderr_fileno)
 
 # OpenAI API 키 설정
-client = OpenAI(api_key="YOUR_OPENAI_API_KEY")
+openai_api_key = "YOUR_OPENAI_API_KEY"
+client = OpenAI(api_key=openai_api_key)
 
 # Initialize LED
 # led_living_room = LED(17)  # 주석 처리
@@ -50,7 +51,7 @@ async def correct_transcript(transcript):
     )
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": transcript}
@@ -61,7 +62,7 @@ async def correct_transcript(transcript):
             frequency_penalty=0,
             presence_penalty=0
         )
-        return response.choices[0].message['content'].strip()
+        return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"Error correcting transcript: {e}")
         return transcript
@@ -69,7 +70,7 @@ async def correct_transcript(transcript):
 async def call_chatgpt4_api(conversation):
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4",
             messages=conversation,
             temperature=1,
             max_tokens=256,
@@ -77,36 +78,24 @@ async def call_chatgpt4_api(conversation):
             frequency_penalty=0,
             presence_penalty=0
         )
-        return response.choices[0].message['content'].strip()
+        return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"Error calling ChatGPT API: {e}")
         return "명령을 처리하는 데 문제가 발생했습니다."
 
 def generate_speech(text):
     try:
-        client = texttospeech.TextToSpeechClient()
-
-        synthesis_input = texttospeech.SynthesisInput(text=text)
-
-        voice = texttospeech.VoiceSelectionParams(
-            language_code="ko-KR",
-            ssml_gender=texttospeech.SsmlVoiceGender.NEUTRAL
+        response = client.audio.speech.create(
+            model="tts-1",
+            voice="alloy",
+            input=text
         )
-
-        audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.LINEAR16
-        )
-
-        response = client.synthesize_speech(
-            input=synthesis_input, voice=voice, audio_config=audio_config
-        )
-
-        speech_file_path = Path(__file__).parent / "response.wav"
+        
+        speech_file_path = Path(__file__).parent / "response.mp3"
         with open(speech_file_path, "wb") as out:
             out.write(response.audio_content)
         
-        with wave.open(str(speech_file_path), 'rb') as wave_file:
-            wave_obj = sa.WaveObject(wave_file.readframes(wave_file.getnframes()), num_channels=wave_file.getnchannels(), bytes_per_sample=wave_file.getsampwidth(), sample_rate=wave_file.getframerate())
+        wave_obj = sa.WaveObject.from_wave_file(speech_file_path)
         play_obj = wave_obj.play()
         play_obj.wait_done()
     except Exception as e:
