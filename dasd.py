@@ -2,12 +2,11 @@ import openai
 import os
 import asyncio
 import speech_recognition as sr
-import simpleaudio as sa
+import pyaudio
+import time
 from pathlib import Path
 import wave
 import sys
-import pyaudio
-import time
 from openai import OpenAI
 
 # ALSA 에러 억제
@@ -86,8 +85,6 @@ async def call_chatgpt4_api(conversation):
         return "명령을 처리하는 데 문제가 발생했습니다."
 
 def stream_to_speakers(text):
-    import pyaudio
-
     player_stream = pyaudio.PyAudio().open(format=pyaudio.paInt16, channels=1, rate=24000, output=True)
 
     start_time = time.time()
@@ -152,10 +149,11 @@ Avoid mentioning that you are an AI, respond as if you are a human.
                 conversation.append({"role": "assistant", "content": gpt_response})
 
                 iot_response = iot.process_command(gpt_response)
-                if iot_response:
-                    stream_to_speakers(iot_response)
-                else:
+                # IoT 명령이 처리되지 않은 경우 gpt_response를 사용
+                if iot_response == "알 수 없는 명령입니다.":
                     stream_to_speakers(gpt_response)
+                else:
+                    stream_to_speakers(iot_response)
         except sr.UnknownValueError:
             print("음성을 인식하지 못했습니다.")
         except sr.RequestError as e:
