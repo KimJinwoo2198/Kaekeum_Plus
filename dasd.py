@@ -4,6 +4,13 @@ import asyncio
 import speech_recognition as sr
 from gpiozero import LED
 import simpleaudio as sa
+import sys
+import subprocess
+
+# ALSA 및 기타 stderr 메시지 억제
+stderr_fileno = sys.stderr.fileno()
+devnull = os.open(os.devnull, os.O_RDWR)
+os.dup2(devnull, stderr_fileno)
 
 # OpenAI API 키 설정
 openai.api_key = "YOUR_OPENAI_API_KEY"
@@ -71,12 +78,12 @@ async def generate_speech(text):
         response = await openai.Audio.create(
             engine="davinci-tts",
             prompt=text,
-            format="opus",
+            format="wav",
             language="ko"
         )
-        with open("response.opus", "wb") as f:
-            f.write(response['audio'])
-        wave_obj = sa.WaveObject.from_wave_file("response.opus")
+        with open("response.wav", "wb") as f:
+            f.write(response['data'])
+        wave_obj = sa.WaveObject.from_wave_file("response.wav")
         play_obj = wave_obj.play()
         play_obj.wait_done()
     except Exception as e:
