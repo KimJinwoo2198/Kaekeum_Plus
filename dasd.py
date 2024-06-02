@@ -1,18 +1,15 @@
 import openai
 import os
-import pyaudio
 import asyncio
-import aiohttp
+import speech_recognition as sr
 from gpiozero import LED
 import simpleaudio as sa
-from google.cloud import speech
 
 # OpenAI API 키 설정
 openai.api_key = "YOUR_OPENAI_API_KEY"
 
 # Google Cloud 인증 키 설정
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "path_to_your_google_cloud_credentials.json"
-speech_client = speech.SpeechClient()
 
 # Initialize LED
 led_living_room = LED(17)
@@ -35,68 +32,7 @@ class IotControl:
         elif "거실 불 꺼줘" in command:
             return self.turn_off_living_room_light()
         else:
-            return None
-
-class AudioStream:
-    def __init__(self):
-        self.chunk = 1024  # Record in chunks of 1024 samples
-        self.sample_format = pyaudio.paInt16  # 16 bits per sample
-        self.channels = 1
-        self.fs = 16000  # Record at 16000 samples per second
-        self.p = pyaudio.PyAudio()
-        self.stream = self.p.open(format=self.sample_format,
-                                  channels=self.channels,
-                                  rate=self.fs,
-                                  frames_per_buffer=self.chunk,
-                                  input=True)
-        self.frames = []
-
-    async def start_stream(self):
-        while True:
-            data = self.stream.read(self.chunk)
-            self.frames.append(data)
-            if len(self.frames) >= 10:  # 10 chunks to form a 1-second buffer
-                audio_content = b''.join(self.frames)
-                self.frames = []
-                transcription = await self.transcribe_audio(audio_content)  # await 추가
-                if transcription and "헤이 어시스턴트" in transcription.lower():
-                    self.play_beep()
-                    print("Keyword detected, start conversation")
-                    await self.handle_command(transcription.replace("헤이 어시스턴트", "").strip())  # await 추가
-
-    def play_beep(self):
-        wave_obj = sa.WaveObject.from_wave_file("beep.wav")
-        play_obj = wave_obj.play()
-        play_obj.wait_done()
-
-    async def transcribe_audio(self, audio_content):
-        audio = speech.RecognitionAudio(content=audio_content)
-        config = speech.RecognitionConfig(
-            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-            sample_rate_hertz=16000,
-            language_code="ko-KR",
-            model="default",
-            enable_automatic_punctuation=True,
-            speech_contexts=[speech.SpeechContext(phrases=["헤이 어시스턴트", "거실 불 켜줘", "거실 불 꺼줘"])]
-        )
-        response = speech_client.recognize(config=config, audio=audio)
-        for result in response.results:
-            return result.alternatives[0].transcript
-        return None
-
-    async def handle_command(self, transcript):
-        corrected_transcript = await correct_transcript(transcript)
-        conversation.append({"role": "user", "content": corrected_transcript})
-        gpt_response = await call_chatgpt4_api(conversation)
-        print(f"GPT-4o Response: {gpt_response}")
-        conversation.append({"role": "assistant", "content": gpt_response})
-
-        # IoT 명령 처리
-        iot_response = iot.process_command(gpt_response)
-        if iot_response:
-            await generate_speech(iot_response)
-        else:
-            await generate_speech(gpt_response)
+            return "알 수 없는 명령입니다."
 
 async def correct_transcript(transcript):
     system_prompt = (
@@ -107,7 +43,7 @@ async def correct_transcript(transcript):
         "and use only the context provided."
     )
     try:
-        response = await openai.ChatCompletion.create(
+        response = openai.ChatCompletion.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -121,7 +57,7 @@ async def correct_transcript(transcript):
 
 async def call_chatgpt4_api(conversation):
     try:
-        response = await openai.ChatCompletion.create(
+        response = openai.ChatCompletion.create(
             model="gpt-4o",
             messages=conversation
         )
@@ -140,10 +76,16 @@ async def generate_speech(text):
         )
         with open("response.opus", "wb") as f:
             f.write(response['audio'])
-        play_obj = sa.WaveObject.from_wave_file("response.opus").play()
+        wave_obj = sa.WaveObject.from_wave_file("response.opus")
+        play_obj = wave_obj.play()
         play_obj.wait_done()
     except Exception as e:
         print(f"Error generating speech: {e}")
+
+def play_beep():
+    wave_obj = sa.WaveObject.from_wave_file("beep.wav")
+    play_obj = wave_obj.play()
+    play_obj.wait_done()
 
 async def main():
     global conversation, iot
@@ -160,8 +102,38 @@ For other requests, provide helpful and informative responses. Provide detailed 
 Avoid mentioning that you are an AI, respond as if you are a human.
 """ }]
 
-    audio_stream = AudioStream()
-    await audio_stream.start_stream()
+    recognizer = sr.Recognizer()
+    mic = sr.Microphone()
+
+    print("Listening for '시리야'...")
+
+    while True:
+        with mic as source:
+            recognizer.adjust_for_ambient_noise(source)
+            print("Listening...")
+            audio = recognizer.listen(source)
+        
+        try:
+            transcription = recognizer.recognize_google(audio, language="ko-KR")
+            print(f"Transcription: {transcription}")
+            if "시리야" in transcription:
+                play_beep()
+                command = transcription.replace("시리야", "").strip()
+                corrected_command = await correct_transcript(command)
+                conversation.append({"role": "user", "content": corrected_command})
+                gpt_response = await call_chatgpt4_api(conversation)
+                print(f"GPT-4 Response: {gpt_response}")
+                conversation.append({"role": "assistant", "content": gpt_response})
+
+                iot_response = iot.process_command(gpt_response)
+                if iot_response:
+                    await generate_speech(iot_response)
+                else:
+                    await generate_speech(gpt_response)
+        except sr.UnknownValueError:
+            print("음성을 인식하지 못했습니다.")
+        except sr.RequestError as e:
+            print(f"Google Speech Recognition service 오류: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
