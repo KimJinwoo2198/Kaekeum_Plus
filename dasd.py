@@ -2,10 +2,18 @@ import openai
 import os
 import asyncio
 import speech_recognition as sr
+import simpleaudio as sa
+from pathlib import Path
+import wave
+import sys
 import pyaudio
 import time
-from pathlib import Path
 from openai import OpenAI
+
+# ALSA 에러 억제
+stderr_fileno = sys.stderr.fileno()
+devnull = os.open(os.devnull, os.O_RDWR)
+os.dup2(devnull, stderr_fileno)
 
 # OpenAI API 키 설정 (환경 변수에서 가져옴)
 openai_api_key = "YOUR_OPENAI_API_KEY"
